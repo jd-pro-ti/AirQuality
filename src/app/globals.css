@@ -71,3 +71,41 @@ input:focus-visible {
   outline: 3px solid yellow !important;
   outline-offset: 2px !important;
 }
+/* Mejoras para el panel de accesibilidad */
+.accessibility-panel {
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+}
+
+/* Transiciones suaves para cambios de tema */
+* {
+  transition: background-color 0.3s ease, border-color 0.3s ease, color 0.3s ease;
+}
+
+/* Estados de hover consistentes */
+button {
+  transition: all 0.2s ease-in-out;
+}
+
+/* Mejoras de scroll para el panel */
+.panel-scroll {
+  scrollbar-width: thin;
+  scrollbar-color: #cbd5e0 transparent;
+}
+
+.panel-scroll::-webkit-scrollbar {
+  width: 6px;
+}
+
+.panel-scroll::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.panel-scroll::-webkit-scrollbar-thumb {
+  background: #cbd5e0;
+  border-radius: 3px;
+}
+
+.dark .panel-scroll::-webkit-scrollbar-thumb {
+  background: #4b5563;
+}
