@@ -1,37 +1,23 @@
 'use client';
 
 import React, { useState, useRef, useEffect } from 'react';
-
-import { Send, User, Bot, Sparkles, Trash2 } from 'lucide-react';
+import { Send, User, Bot, Sparkles, Trash2, MapPin } from 'lucide-react';
+import { apiServices } from '@/services/api';
 
 export default function RecomendacionesIA() {
   const [messages, setMessages] = useState([
     {
       id: 1,
-      text: "¡Hola! Soy tu asistente de calidad del aire. Puedo ayudarte con recomendaciones personalizadas sobre contaminación, salud y prevención. ¿En qué puedo asistirte hoy?",
+      text: "¡Hola! Soy tu asistente de calidad del aire. Puedo ayudarte con recomendaciones personalizadas sobre contaminación, salud y prevención. ¿De qué ciudad te gustaría obtener información?",
       sender: 'bot',
       timestamp: new Date()
     }
   ]);
   const [inputMessage, setInputMessage] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+  const [currentCity, setCurrentCity] = useState('');
+  const [cityConfirmed, setCityConfirmed] = useState(false);
   const messagesEndRef = useRef(null);
-
-  // Simular respuestas de IA
-  const simulateAIResponse = (userMessage) => {
-    const responses = [
-      "Basándome en los datos actuales de calidad del aire, te recomiendo evitar actividades al aire libre durante las horas pico de contaminación (generalmente entre 12pm y 6pm).",
-      "Para proteger tu salud respiratoria, considera usar mascarilla cuando los niveles de PM2.5 superen los 35 µg/m³, especialmente si tienes condiciones preexistentes.",
-      "Los niveles actuales de ozono están dentro del rango moderado. Es buen momento para ventilar tu hogar por la mañana temprano cuando la contaminación es menor.",
-      "He analizado las tendencias recientes y parece que la calidad del aire mejorará durante el fin de semana. Podrías planificar actividades al aire libre para esos días.",
-      "Te sugiero instalar purificadores de aire con filtros HEPA en espacios cerrados, especialmente si vives en zonas con alta concentración de partículas PM2.5.",
-      "Según los datos históricos, esta época del año suele presentar mayores niveles de polen y contaminantes. Personas alérgicas deben tomar precauciones adicionales.",
-      "Recomiendo el uso de la aplicación móvil para recibir alertas en tiempo real cuando la calidad del aire empeore en tu ubicación específica.",
-      "Para mejorar la calidad del aire interior, considera tener plantas como potus, palma areca y lengua de tigre que ayudan a purificar el ambiente."
-    ];
-    
-    return responses[Math.floor(Math.random() * responses.length)];
-  };
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -41,12 +27,80 @@ export default function RecomendacionesIA() {
     scrollToBottom();
   }, [messages]);
 
+  // Función para obtener recomendaciones de la API
+  const getAIRecommendations = async (ciudad, tipoConsulta = 'general') => {
+    try {
+      let response;
+      
+      switch (tipoConsulta) {
+        case 'contaminantes':
+          response = await apiServices.recomendaciones.analizarContaminantes(ciudad);
+          return response.analisis || `Análisis de contaminantes para ${ciudad}: No disponible temporalmente.`;
+        
+        case 'rapidas':
+          response = await apiServices.recomendaciones.obtenerRecomendacionesRapidas(ciudad);
+          return response.recomendacionPrincipal || `Recomendaciones rápidas para ${ciudad}: Consulta no disponible.`;
+        
+        case 'general':
+        default:
+          response = await apiServices.recomendaciones.obtenerRecomendaciones(ciudad);
+          return response.recomendaciones || `Recomendaciones para ${ciudad}: No disponibles en este momento.`;
+      }
+    } catch (error) {
+      console.error('Error obteniendo recomendaciones:', error);
+      return `Lo siento, hubo un error al obtener datos para ${ciudad}. La ciudad podría no estar en nuestra base de datos o hay un problema de conexión.`;
+    }
+  };
+
+  // Función para detectar el tipo de consulta del usuario
+  const detectQueryType = (message) => {
+    const messageLower = message.toLowerCase();
+    
+    if (messageLower.includes('contaminante') || messageLower.includes('partículas') || 
+        messageLower.includes('pm2.5') || messageLower.includes('pm10') || 
+        messageLower.includes('análisis') || messageLower.includes('analisis')) {
+      return 'contaminantes';
+    }
+    
+    if (messageLower.includes('rápida') || messageLower.includes('rapida') || 
+        messageLower.includes('resumen') || messageLower.includes('breve') ||
+        messageLower.includes('quick') || messageLower.includes('fast')) {
+      return 'rapidas';
+    }
+    
+    return 'general';
+  };
+
+  // Función SIMPLIFICADA - acepta cualquier ciudad
+  const extractCityFromMessage = (message) => {
+    // Si el mensaje es corto (probablemente solo el nombre de una ciudad)
+    if (message.trim().split(' ').length <= 4 && message.length <= 30) {
+      return message.trim();
+    }
+    
+    // Buscar patrones comunes de mención de ciudad
+    const cityPatterns = [
+      /(?:en|para|de|sobre)\s+([^,.!?]{1,30})/i,
+      /calidad del aire en (.+)/i,
+      /recomendaciones para (.+)/i
+    ];
+    
+    for (const pattern of cityPatterns) {
+      const match = message.match(pattern);
+      if (match && match[1]) {
+        return match[1].trim();
+      }
+    }
+    
+    // Si no se detecta patrón específico, asumir que es una consulta general sin ciudad nueva
+    return null;
+  };
+
   const handleSendMessage = async (e) => {
     e.preventDefault();
     
     if (!inputMessage.trim()) return;
 
-    // Agregar mensaje del usuario
     const userMessage = {
       id: messages.length + 1,
       text: inputMessage,
@@ -55,38 +109,85 @@ export default function RecomendacionesIA() {
     };
 
     setMessages(prev => [...prev, userMessage]);
+    const userInput = inputMessage;
     setInputMessage('');
     setIsLoading(true);
 
-    // Simular delay de IA
-    setTimeout(() => {
+    try {
+      let aiResponseText = '';
+      let detectedCity = currentCity;
+      let newCityDetected = false;
+
+      // Si no hay ciudad confirmada o el usuario menciona una nueva ciudad
+      if (!cityConfirmed || userInput.toLowerCase().includes('cambiar') || userInput.toLowerCase().includes('otra')) {
+        const extractedCity = extractCityFromMessage(userInput);
+        
+        if (extractedCity) {
+          detectedCity = extractedCity;
+          setCurrentCity(extractedCity);
+          newCityDetected = true;
+          
+          // Confirmar automáticamente la ciudad
+          setCityConfirmed(true);
+          aiResponseText = `¡Perfecto! Analizaré la calidad del aire para ${extractedCity}. `;
+        }
+      }
+
+      // Si tenemos una ciudad confirmada, obtener recomendaciones reales
+      if (detectedCity && cityConfirmed) {
+        const queryType = detectQueryType(userInput);
+        const recommendations = await getAIRecommendations(detectedCity, queryType);
+        
+        if (newCityDetected) {
+          aiResponseText += recommendations;
+        } else {
+          aiResponseText = recommendations;
+        }
+      } 
+      // Si no hay ciudad detectada
+      else if (!detectedCity) {
+        aiResponseText = "Por favor, menciona el nombre de una ciudad para que pueda darte recomendaciones específicas sobre la calidad del aire. Por ejemplo: 'Ciudad de México', 'Guadalajara', 'Monterrey', etc.";
+      }
+
       const aiResponse = {
         id: messages.length + 2,
-        text: simulateAIResponse(inputMessage),
+        text: aiResponseText,
         sender: 'bot',
         timestamp: new Date()
       };
       
       setMessages(prev => [...prev, aiResponse]);
+    } catch (error) {
+      console.error('Error en el chat:', error);
+      const errorResponse = {
+        id: messages.length + 2,
+        text: "Lo siento, hubo un error al procesar tu solicitud. Por favor, intenta de nuevo más tarde.",
+        sender: 'bot',
+        timestamp: new Date()
+      };
+      setMessages(prev => [...prev, errorResponse]);
+    } finally {
       setIsLoading(false);
-    }, 1500);
+    }
   };
 
   const clearChat = () => {
     setMessages([
       {
         id: 1,
-        text: "¡Hola! Soy tu asistente de calidad del aire. Puedo ayudarte con recomendaciones personalizadas sobre contaminación, salud y prevención. ¿En qué puedo asistirte hoy?",
+        text: "¡Hola! Soy tu asistente de calidad del aire. Puedo ayudarte con recomendaciones personalizadas sobre contaminación, salud y prevención. ¿De qué ciudad te gustaría obtener información?",
         sender: 'bot',
         timestamp: new Date()
       }
     ]);
+    setCurrentCity('');
+    setCityConfirmed(false);
   };
 
   const suggestedQuestions = [
-    "¿Cómo protejo mi salud con la calidad del aire actual?",
-    "Recomendaciones para hacer ejercicio hoy",
-    "¿Es seguro ventilar mi casa?",
+    "Calidad del aire en Maravatio",
+    "Recomendaciones para Lázaro Cárdenas",
+    "Contaminantes en Morelia",
     "Consejos para personas con asma"
   ];
 
@@ -94,10 +195,20 @@ export default function RecomendacionesIA() {
     setInputMessage(question);
   };
 
+  // Función para cambiar ciudad manualmente
+  const changeCity = () => {
+    setCurrentCity('');
+    setCityConfirmed(false);
+    setMessages(prev => [...prev, {
+      id: prev.length + 1,
+      text: "Por favor, escribe el nombre de la nueva ciudad que te interesa.",
+      sender: 'bot',
+      timestamp: new Date()
+    }]);
+  };
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 dark:from-gray-900 dark:to-gray-800">
-
-      
       <main className="min-h-[calc(100vh-140px)] w-full flex flex-col items-center py-8 px-4 md:px-8">
         
         {/* Encabezado */}
@@ -111,10 +222,26 @@ export default function RecomendacionesIA() {
                 Asistente IA - Calidad del Aire
               </h1>
               <p className="text-xl text-gray-600 dark:text-gray-300 mt-3">
-                Obtén recomendaciones personalizadas basadas en datos en tiempo real
+                Obtén recomendaciones para cualquier ciudad
               </p>
             </div>
           </div>
+
+          {/* Indicador de ciudad actual */}
+          {currentCity && (
+            <div className="inline-flex items-center gap-2 bg-white dark:bg-gray-800 px-4 py-2 rounded-full shadow-md border border-gray-200 dark:border-gray-700">
+              <MapPin className="w-4 h-4 text-blue-600" />
+              <span className="text-sm font-medium text-gray-700 dark:text-gray-300">
+                Ciudad actual: <span className="text-blue-600 dark:text-blue-400">{currentCity}</span>
+              </span>
+              <button
+                onClick={changeCity}
+                className="text-xs text-gray-500 hover:text-gray-700 ml-2"
+              >
+                Cambiar
+              </button>
+            </div>
+          )}
         </div>
 
         {/* Contenedor principal del chat */}
@@ -128,7 +255,9 @@ export default function RecomendacionesIA() {
               </div>
               <div>
                 <h2 className="text-gray-900 dark:text-white font-semibold text-lg">Asistente de Calidad del Aire</h2>
-                <p className="text-gray-600 dark:text-gray-400 text-sm">En línea • Basado en datos en tiempo real</p>
+                <p className="text-gray-600 dark:text-gray-400 text-sm">
+                  {currentCity ? `Analizando: ${currentCity}` : 'En línea • Cualquier ciudad disponible'}
+                </p>
               </div>
             </div>
             <button
@@ -171,7 +300,7 @@ export default function RecomendacionesIA() {
                       ? 'bg-blue-600 text-white rounded-br-none'
                       : 'bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 text-gray-800 dark:text-gray-200 rounded-bl-none'
                   } shadow-sm`}>
-                    <p className="text-lg leading-relaxed">{message.text}</p>
+                    <p className="text-lg leading-relaxed whitespace-pre-line">{message.text}</p>
                   </div>
                   <span className="text-xs text-gray-500 dark:text-gray-400 mt-1 block">
                     {message.timestamp.toLocaleTimeString('es-MX', { 
@@ -191,10 +320,15 @@ export default function RecomendacionesIA() {
                 </div>
                 <div className="max-w-[70%]">
                   <div className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 px-4 py-3 rounded-2xl rounded-bl-none shadow-sm">
-                    <div className="flex space-x-2">
-                      <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce"></div>
-                      <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '0.2s' }}></div>
-                      <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '0.4s' }}></div>
+                    <div className="flex items-center gap-3">
+                      <div className="flex space-x-1">
+                        <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce"></div>
+                        <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '0.2s' }}></div>
+                        <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '0.4s' }}></div>
+                      </div>
+                      <span className="text-sm text-gray-600 dark:text-gray-400">
+                        Consultando datos de calidad del aire...
+                      </span>
                     </div>
                   </div>
                 </div>
@@ -207,7 +341,7 @@ export default function RecomendacionesIA() {
           {/* Preguntas sugeridas */}
           {messages.length === 1 && (
             <div className="px-6 py-4 bg-white dark:bg-gray-800 border-t border-gray-200 dark:border-gray-700">
-              <p className="text-sm text-gray-600 dark:text-gray-400 mb-3">Preguntas sugeridas:</p>
+              <p className="text-sm text-gray-600 dark:text-gray-400 mb-3">Ejemplos de consultas:</p>
               <div className="flex flex-wrap gap-2">
                 {suggestedQuestions.map((question, index) => (
                   <button
@@ -229,7 +363,11 @@ export default function RecomendacionesIA() {
                 type="text"
                 value={inputMessage}
                 onChange={(e) => setInputMessage(e.target.value)}
-                placeholder="Escribe tu pregunta sobre calidad del aire..."
+                placeholder={
+                  currentCity 
+                    ? `Escribe tu pregunta sobre ${currentCity}...`
+                    : "Escribe el nombre de una ciudad o tu pregunta..."
+                }
                 className="flex-1 px-4 py-3 bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent text-gray-900 dark:text-white placeholder-gray-500 dark:placeholder-gray-400 text-lg"
                 disabled={isLoading}
               />
@@ -251,28 +389,27 @@ export default function RecomendacionesIA() {
             <div className="w-12 h-12 bg-blue-100 dark:bg-blue-900/30 rounded-xl flex items-center justify-center mx-auto mb-3">
               <Sparkles className="w-6 h-6 text-blue-600 dark:text-blue-400" />
             </div>
-            <h3 className="font-semibold text-gray-900 dark:text-white mb-2">Basado en Datos Reales</h3>
-            <p className="text-gray-600 dark:text-gray-300 text-sm">Analiza información en tiempo real de estaciones de monitoreo</p>
+            <h3 className="font-semibold text-gray-900 dark:text-white mb-2">Cualquier Ciudad</h3>
+            <p className="text-gray-600 dark:text-gray-300 text-sm">Consulta datos de calidad del aire para cualquier ciudad disponible</p>
           </div>
 
           <div className="bg-white dark:bg-gray-800 p-6 rounded-2xl shadow-lg border border-gray-200 dark:border-gray-700 text-center">
             <div className="w-12 h-12 bg-green-100 dark:bg-green-900/30 rounded-xl flex items-center justify-center mx-auto mb-3">
               <User className="w-6 h-6 text-green-600 dark:text-green-400" />
             </div>
-            <h3 className="font-semibold text-gray-900 dark:text-white mb-2">Recomendaciones Personalizadas</h3>
-            <p className="text-gray-600 dark:text-gray-300 text-sm">Sugerencias adaptadas a tu ubicación y perfil de salud</p>
+            <h3 className="font-semibold text-gray-900 dark:text-white mb-2">Recomendaciones Reales</h3>
+            <p className="text-gray-600 dark:text-gray-300 text-sm">Basado en datos actuales de estaciones de monitoreo</p>
           </div>
 
           <div className="bg-white dark:bg-gray-800 p-6 rounded-2xl shadow-lg border border-gray-200 dark:border-gray-700 text-center">
-            <div className="w-12 h-12 bg-gray-100 dark:bg-gray-700 rounded-xl flex items-center justify-center mx-auto mb-3">
-              <Bot className="w-6 h-6 text-gray-600 dark:text-gray-400" />
+            <div className="w-12 h-12 bg-purple-100 dark:bg-purple-900/30 rounded-xl flex items-center justify-center mx-auto mb-3">
+              <MapPin className="w-6 h-6 text-purple-600 dark:text-purple-400" />
             </div>
-            <h3 className="font-semibold text-gray-900 dark:text-white mb-2">IA Especializada</h3>
-            <p className="text-gray-600 dark:text-gray-300 text-sm">Algoritmos entrenados específicamente en calidad del aire</p>
+            <h3 className="font-semibold text-gray-900 dark:text-white mb-2">Fácil Cambio</h3>
+            <p className="text-gray-600 dark:text-gray-300 text-sm">Cambia de ciudad en cualquier momento</p>
           </div>
         </div>
       </main>
-
     </div>
   );
 }

@@ -57,9 +57,9 @@ const Footer = () => {
               Contacto
             </h3>
             <ul className="space-y-1 text-gray-600 dark:text-gray-400 text-sm">
-              <li>info@airquality.com</li>
-              <li>+1 (555) 123-4567</li>
-              <li>Ciudad de México, MX</li>
+              <li>airquality.com</li>
+              <li>4471052548</li>
+              <li>Maravatio Michoacan</li>
             </ul>
           </div>
         </div>
