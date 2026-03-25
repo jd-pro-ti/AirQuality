@@ -46,7 +46,7 @@ export default function Predicciones() {
                 </svg>
               </div>
               <h1 className="text-3xl md:text-4xl font-bold bg-gradient-to-r from-blue-600 to-indigo-600 bg-clip-text text-transparent">
-                Predicciones de Calidad del Aire
+                Predicciones de Calidad del Aire 
               </h1>
             </div>
             <p className="text-lg text-gray-600 dark:text-gray-300 max-w-2xl mx-auto">
